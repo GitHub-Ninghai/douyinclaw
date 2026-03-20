@@ -2,6 +2,7 @@
 
 import { useSystemStatus, useSparkLogs, useReplyLogs } from '@/lib/api';
 import { Card, Badge, StatusIndicator } from '@/components/ui';
+import { AgentStatus } from '@/components';
 import type { SparkLog, ReplyLog } from '@douyinclaw/shared';
 
 export default function DashboardPage() {
@@ -186,6 +187,41 @@ export default function DashboardPage() {
           </div>
         </Card>
       )}
+
+      {/* Agent Status & Quick Actions */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <AgentStatus
+          status={status?.loginStatus === 'active' ? 'idle' : 'error'}
+          lastActivity={status?.uptime ? new Date(Date.now() - status.uptime * 1000).toISOString() : undefined}
+          tasksCompleted={status?.todaySpark?.success ?? 0}
+          tasksFailed={status?.todaySpark?.failed ?? 0}
+        />
+
+        <Card title="快捷操作" className="lg:col-span-2">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <QuickActionButton
+              icon={<SparkIcon className="w-5 h-5" />}
+              label="发送火花"
+              href="/spark"
+            />
+            <QuickActionButton
+              icon={<ReplyIcon className="w-5 h-5" />}
+              label="智能回复"
+              href="/reply"
+            />
+            <QuickActionButton
+              icon={<AgentIcon className="w-5 h-5" />}
+              label="智能体"
+              href="/agents"
+            />
+            <QuickActionButton
+              icon={<ToolsIcon className="w-5 h-5" />}
+              label="工具"
+              href="/tools"
+            />
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }
@@ -270,5 +306,45 @@ function AlertIcon({ className }: { className?: string }) {
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
     </svg>
+  );
+}
+
+function AgentIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+    </svg>
+  );
+}
+
+function ToolsIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+    </svg>
+  );
+}
+
+// Quick Action Button Component
+function QuickActionButton({
+  icon,
+  label,
+  href,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  href: string;
+}) {
+  return (
+    <a
+      href={href}
+      className="flex flex-col items-center justify-center p-4 bg-gray-700/30 hover:bg-gray-700/50 rounded-lg transition-colors"
+    >
+      <div className="w-10 h-10 rounded-lg bg-douyin-primary/20 flex items-center justify-center mb-2 text-douyin-primary">
+        {icon}
+      </div>
+      <span className="text-gray-300 text-sm">{label}</span>
+    </a>
   );
 }

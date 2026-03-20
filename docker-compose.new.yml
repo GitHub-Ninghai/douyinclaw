@@ -1,0 +1,143 @@
+version: '3.8'
+
+services:
+  # ====================
+  # Backend Service
+  # ====================
+  backend:
+    build:
+      context: ./packages/backend
+      dockerfile: Dockerfile
+    container_name: douyin-claw-backend
+    ports:
+      - "3001:3001"
+    environment:
+      - MONGODB_URI=mongodb://admin:admin123@mongodb:27017/douyinclaw?authSource=admin
+      - REDIS_URL=redis://redis:6379
+      - GLM_API_KEY=${GLM_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - SANDBOX_URL=ws://sandbox:9222
+    volumes:
+      - ./Tools:/app/Tools
+      - ./Skills:/app/Skills
+      - ./workspace:/app/workspace
+    depends_on:
+      - mongodb
+      - redis
+      - sandbox
+    networks:
+      - douyin-claw-network
+
+  # ====================
+  # Frontend Service
+  # ====================
+  frontend:
+    build:
+      context: ./packages/web
+      dockerfile: Dockerfile
+    container_name: douyin-claw-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:3001
+    volumes:
+      - ./Tools:/app/Tools
+      - ./Skills:/app/Skills
+      - ./workspace:/app/workspace
+    depends_on:
+      - backend
+    networks:
+      - douyin-claw-network
+
+  # ====================
+  # Sandbox Service
+  # ====================
+  sandbox:
+    build:
+      context: ./packages/sandbox
+      dockerfile: Dockerfile
+    container_name: douyin-claw-sandbox
+    ports:
+      - "9222:9222"
+    environment:
+      - CHROME_FLAGS=--disable-blink-features=AutomationControlled
+    volumes:
+      - ./workspace:/workspace
+      - ./data/sessions:/sessions
+    security_opt:
+      - no-new-privileges:true
+    shm_size: '2gb'
+    networks:
+      - douyin-claw-network
+
+  # ====================
+  # Task Service
+  # ====================
+  task-service:
+    build:
+      context: ./packages/task-service
+      dockerfile: Dockerfile
+    container_name: douyin-claw-task-service
+    ports:
+      - "3002:3002"
+    environment:
+      - MONGODB_URI=mongodb://admin:admin123@mongodb:27017/douyinclaw?authSource=admin
+      - REDIS_URL=redis://redis:6379
+      - BACKEND_URL=http://backend:3001
+    depends_on:
+      - mongodb
+      - redis
+      - backend
+    networks:
+      - douyin-claw-network
+
+  # ====================
+  # MongoDB
+  # ====================
+  mongodb:
+    image: registry.cn-hangzhou.aliyuncs.com/library/mongo:7.0-jammy
+    container_name: douyin-claw-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=admin123
+    networks:
+      - douyin-claw-network
+
+  # ====================
+  # Redis
+  # ====================
+  redis:
+    image: registry.cn-hangzhou.aliyuncs.com/library/redis:7-alpine
+    container_name: douyin-claw-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - douyin-claw-network
+
+  # ====================
+  # WebSearch (SearXNG)
+  # ====================
+  websearch:
+    image: registry.cn-hangzhou.aliyuncs.com/searxng/searxng:latest
+    container_name: douyin-claw-websearch
+    ports:
+      - "8888:8080"
+    environment:
+      - BASE_URL=http://localhost:8888/
+      - INSTANCE_NAME=DouyinClaw Search
+    networks:
+      - douyin-claw-network
+
+networks:
+  douyin-claw-network:
+    driver: bridge
+
+volumes:
+  mongodb_data:
+  redis_data:

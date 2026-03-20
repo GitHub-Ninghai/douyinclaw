@@ -36,5 +36,8 @@ npm-debug.log*
 # Test
 coverage/
 
+# Claude Code
+.claude/
+
 # Misc
 *.pem

@@ -11,7 +11,8 @@ import type {
   AppSettings,
   Friend,
   MessagePoolItem,
-  LLMProviderInfo
+  LLMProviderInfo,
+  ReplyStyle
 } from '@douyinclaw/shared';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
@@ -259,4 +260,159 @@ export function refreshSparkLogs() {
 
 export function refreshReplyLogs() {
   mutate((key) => typeof key === 'string' && key.startsWith('/api/reply/logs'));
+}
+
+// ==================== Agent API ====================
+
+// 智能体执行请求
+export interface AgentExecuteRequest {
+  task: string;
+  context?: Record<string, unknown>;
+}
+
+// 智能体执行响应
+export interface AgentExecuteResponse {
+  success: boolean;
+  taskId: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  result?: Record<string, unknown>;
+  error?: string;
+}
+
+// 执行智能体任务
+export async function executeAgentTask(request: AgentExecuteRequest): Promise<AgentExecuteResponse> {
+  return api.post('/api/agent/execute', request);
+}
+
+// ==================== Spark API (新) ====================
+
+// 启动续火花响应
+export interface SparkStartResponse {
+  success: boolean;
+  taskId: string;
+  status: string;
+}
+
+// 火花任务状态
+export interface SparkTaskStatus {
+  id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  progress: number;
+  total: number;
+  results: SparkResultItem[];
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+}
+
+export interface SparkResultItem {
+  friendId: string;
+  friendName: string;
+  status: 'success' | 'failed' | 'skipped';
+  message?: string;
+}
+
+// 启动续火花
+export async function startSpark(): Promise<SparkStartResponse> {
+  return api.post('/api/spark/start');
+}
+
+// 获取任务状态
+export async function getSparkStatus(taskId: string): Promise<SparkTaskStatus> {
+  return api.get(`/api/spark/status/${taskId}`);
+}
+
+// 获取好友列表 (新端点)
+export async function getSparkFriends(): Promise<FriendsListResponse> {
+  return api.get('/api/spark/friends');
+}
+
+// ==================== Reply API (新) ====================
+
+// 生成回复请求
+export interface GenerateReplyRequest {
+  videoUrl: string;
+  friendId?: string;
+  style?: ReplyStyle;
+}
+
+// 生成回复响应
+export interface GenerateReplyResponse {
+  success: boolean;
+  reply: string;
+  analysis?: {
+    summary: string;
+    mood: string;
+    topics: string[];
+  };
+}
+
+// 生成 AI 回复
+export async function generateReply(request: GenerateReplyRequest): Promise<GenerateReplyResponse> {
+  return api.post('/api/reply/generate', request);
+}
+
+// ==================== Tools API ====================
+
+// 工具信息
+export interface ToolInfo {
+  name: string;
+  description: string;
+  parameters: ToolParameter[];
+  category: string;
+}
+
+export interface ToolParameter {
+  name: string;
+  type: string;
+  description: string;
+  required: boolean;
+  default?: unknown;
+}
+
+// 工具执行请求
+export interface ToolExecuteRequest {
+  params: Record<string, unknown>;
+}
+
+// 工具执行响应
+export interface ToolExecuteResponse {
+  success: boolean;
+  result: unknown;
+  error?: string;
+}
+
+// 获取工具列表
+export function useTools(config?: SWRConfiguration) {
+  return useSWR<ToolInfo[]>('/api/tools', fetcher, config);
+}
+
+// 执行工具
+export async function executeTool(name: string, params: Record<string, unknown>): Promise<ToolExecuteResponse> {
+  return api.post(`/api/tools/${name}/execute`, { params });
+}
+
+// ==================== Dashboard API ====================
+
+// 仪表盘统计数据
+export interface DashboardStats {
+  loginStatus: 'active' | 'inactive' | 'expired' | 'error';
+  todaySpark: {
+    success: number;
+    failed: number;
+    total: number;
+  };
+  todayReplies: number;
+  activeTasks: number;
+  uptime: number;
+  nextSparkTime?: string;
+  lastError?: string;
+}
+
+// 获取仪表盘数据
+export function useDashboardStats(config?: SWRConfiguration) {
+  return useSWR<DashboardStats>('/api/status', fetcher, {
+    refreshInterval: 5000,
+    ...config,
+  });
 }

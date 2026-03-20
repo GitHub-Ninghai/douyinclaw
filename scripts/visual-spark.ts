@@ -3,19 +3,20 @@
  * 使用视觉 AI 自动操作浏览器完成续火花
  */
 
-import { chromium, BrowserContext, Page } from 'playwright';
+import { chromium, BrowserContext, Page, Browser } from 'playwright';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// ESM 环境下获取 __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // 已处理的好友记录
 const processedFriends: Set<string> = new Set();
 
-// 简单加载 .env 文件
+// 当前状态
+let currentState: 'idle' | 'panel_open' | 'in_chat' = 'idle';
+
 function loadEnv() {
   const envPath = path.join(__dirname, '..', '.env');
   if (fs.existsSync(envPath)) {
@@ -32,7 +33,6 @@ function loadEnv() {
   }
 }
 
-// 调用 GLM-4V 视觉模型
 async function analyzeWithVision(
   apiKey: string,
   screenshot: string,
@@ -45,390 +45,297 @@ async function analyzeWithVision(
     position?: { x: number; y: number };
     content?: string;
     description?: string;
-    amount?: number;
-    friendName?: string;
   };
   isComplete: boolean;
   progress?: string;
   friendIdentified?: string;
 }> {
-  const response = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: 'glm-4v-flash',
-      messages: [
-        {
-          role: 'system',
-          content: `你是小火苗，帮主人续火花的 AI 助手。
+  try {
+    const response = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'glm-4v-flash',
+        messages: [
+          {
+            role: 'system',
+            content: `你是小火苗，帮主人续火花的AI。
 
 已处理好友: ${processedList.length > 0 ? processedList.join(', ') : '无'}
+当前状态: ${currentState}
 
 【操作类型】
-- hover: 鼠标悬停 {position:{x,y}}
-- click: 点击 {position:{x,y}}
-- input: 输入 {content:"文字"}
-- scroll: 滚动 {amount:200}
-- back: 返回
-- wait: 等待
-- done: 完成
+- hover: 鼠标悬停到私信按钮，等待面板弹出
+- click: 点击某个位置
+- input: 在输入框输入文字并发送
+- back: 返回好友列表
+- done: 所有好友都处理完了
 
-【火花颜色】
-- 灰色 = 需要续火花
-- 彩色/橙色 = 已发过，跳过
+【重要规则】
+1. 火花图标颜色：灰色=需要续火花，彩色/橙色=今天已发过跳过
+2. 不要重复处理同一个好友（看头像和昵称区分）
+3. 发消息要有趣，示例："我是主人的AI小火苗，来续火花啦！今天开心吗？"
 
-【避免重复】看头像和昵称，已处理列表中的人跳过
+【页面坐标】
+- 页面大小: 1280 x 800
+- 私信按钮在右上角约 (1180, 50)
+- 私信面板弹出后，好友列表在右侧
 
-【消息风格】介绍自己+幽默内容，如：
-- "我是小火苗来续火花啦！今天也要元气满满~"
-- "滴！小火苗打卡，今天开心吗？"
+【回复格式】必须只返回JSON:
+{"understanding":"描述页面内容","action":{"type":"click","position":{"x":100,"y":200}},"isComplete":false,"progress":"进度","friendIdentified":"好友昵称"}`
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: task },
+              { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${screenshot}` } },
+            ],
+          },
+        ],
+        max_tokens: 512,
+      }),
+    });
 
-【视频回复】如果有视频先评论："哈哈这个逗"或"好厉害"
+    const data = await response.json() as { choices: Array<{ message: { content: string } }> };
+    const content = data.choices?.[0]?.message?.content || '';
+    console.log(`[AI响应] ${content.substring(0, 300)}`);
 
-【坐标】页面1280x800，私信按钮约(1180,50)
-
-【重要】必须只返回一个 JSON，不要其他文字！
-{"understanding":"描述","action":{"type":"...","position":{"x":0,"y":0},"content":"..."},"isComplete":false,"progress":"进度","friendIdentified":"昵称"}`
-        },
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: `当前任务: ${task}\n\n请分析当前页面截图，告诉我下一步该做什么操作。`
-            },
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:image/jpeg;base64,${screenshot}`,
-              },
-            },
-          ],
-        },
-      ],
-      max_tokens: 1024,
-    }),
-  });
-
-  const data = await response.json() as { choices: Array<{ message: { content: string } }> };
-  const content = data.choices?.[0]?.message?.content || '';
-  console.log(`\n[AI 原始响应]\n${content}\n`);
-
-  // 解析 JSON - 多种尝试方式
-  try {
-    // 方式1: 尝试直接解析整个响应
+    // 尝试解析JSON
     try {
-      return JSON.parse(content);
+      // 尝试直接解析
+      const parsed = JSON.parse(content);
+      if (parsed.action) return parsed;
     } catch {}
 
-    // 方式2: 找第一个完整的 JSON 对象
-    const jsonMatch = content.match(/\{[\s\S]*?\}(?=\s*$|\s*[\n\r]*[^{},])/);
+    // 尝试提取JSON块
+    const jsonMatch = content.match(/\{[\s\S]*?\}/);
     if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
-    }
-
-    // 方式3: 找所有大括号内容，取最长的有效 JSON
-    const allBraces = content.match(/\{[^{}]*\}/g);
-    if (allBraces) {
-      for (const match of allBraces) {
-        try {
-          const parsed = JSON.parse(match);
-          if (parsed.action && parsed.understanding) {
-            return parsed;
-          }
-        } catch {}
-      }
-    }
-
-    // 方式4: 嵌套 JSON
-    const nestedMatch = content.match(/\{[^{}]*\{[^{}]*\}[^{}]*\}/);
-    if (nestedMatch) {
       try {
-        return JSON.parse(nestedMatch[0]);
+        return JSON.parse(jsonMatch[0]);
       } catch {}
     }
 
-  } catch (e) {
-    console.log('[JSON 解析失败，尝试从内容推断操作]');
-  }
-
-  // 尝试从文本推断操作
-  if (content.includes('私信') && content.includes('悬停')) {
     return {
-      understanding: '检测到需要悬停私信按钮',
-      action: { type: 'hover', position: { x: 1180, y: 50 } },
-      isComplete: false,
-      progress: '悬停私信按钮'
+      understanding: 'JSON解析失败，请重试',
+      action: { type: 'wait' },
+      isComplete: false
+    };
+  } catch (error) {
+    console.error('[API错误]', error);
+    return {
+      understanding: 'API调用失败',
+      action: { type: 'wait' },
+      isComplete: false
     };
   }
-
-  if (content.includes('完成') || content.includes('done')) {
-    return {
-      understanding: '任务完成',
-      action: { type: 'done' },
-      isComplete: true,
-      progress: '所有好友已处理'
-    };
-  }
-
-  return {
-    understanding: '无法解析 AI 响应，使用默认等待',
-    action: { type: 'wait', description: '等待' },
-    isComplete: false,
-    progress: '等待中...'
-  };
 }
 
 async function main() {
-  console.log('=== 抖音续火花 - 视觉 AI 模式 ===\n');
-  console.log('🔥 你好！我是小火苗，主人的 AI 助手\n');
+  console.log('🔥 抖音续火花 - 视觉 AI 模式\n');
 
-  // 加载环境变量
   loadEnv();
 
-  // 检查配置
   if (!process.env.GLM_API_KEY) {
-    console.error('错误: 请在 .env 文件中配置 GLM_API_KEY');
-    console.log('\n获取 GLM API Key:');
-    console.log('1. 访问 https://open.bigmodel.cn/');
-    console.log('2. 注册账号并登录');
-    console.log('3. 在控制台获取 API Key');
-    console.log('4. 在 .env 文件中添加: GLM_API_KEY=your-key');
+    console.error('❌ 请在 .env 文件中配置 GLM_API_KEY');
     process.exit(1);
   }
 
-  console.log('正在初始化浏览器...');
-
-  // 创建数据目录
+  console.log('初始化浏览器...');
   const dataDir = path.join(__dirname, '..', 'data');
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
   }
 
-  // 启动浏览器
-  const browser = await chromium.launch({
-    headless: false,
-    args: [
-      '--disable-blink-features=AutomationControlled',
-      '--disable-web-security',
-      '--disable-features=IsolateOrigins,site-per-process',
-    ],
-  });
-
+  let browser: Browser | null = null;
   let context: BrowserContext;
   const sessionPath = path.join(dataDir, 'douyin-session.json');
 
-  // 加载已保存的会话
-  if (fs.existsSync(sessionPath)) {
-    try {
-      const storage = JSON.parse(fs.readFileSync(sessionPath, 'utf-8'));
+  try {
+    browser = await chromium.launch({
+      headless: false,
+      args: ['--disable-blink-features=AutomationControlled'],
+    });
+
+    // 加载或创建会话
+    if (fs.existsSync(sessionPath)) {
+      try {
+        const storage = JSON.parse(fs.readFileSync(sessionPath, 'utf-8'));
+        context = await browser.newContext({
+          storageState: storage,
+          viewport: { width: 1280, height: 800 },
+          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36',
+        });
+        console.log('✓ 已加载保存的会话');
+      } catch {
+        context = await browser.newContext({
+          viewport: { width: 1280, height: 800 },
+          userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36',
+        });
+      }
+    } else {
       context = await browser.newContext({
-        storageState: storage,
         viewport: { width: 1280, height: 800 },
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      });
-      console.log('✓ 已加载保存的会话');
-    } catch (e) {
-      console.log('会话文件损坏，创建新会话');
-      context = await browser.newContext({
-        viewport: { width: 1280, height: 800 },
-        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36',
       });
     }
-  } else {
-    context = await browser.newContext({
-      viewport: { width: 1280, height: 800 },
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    });
-  }
 
-  const page = await context.newPage();
+    const page = await context.newPage();
 
-  // 保存会话函数
-  async function saveSession() {
-    const storage = await context.storageState();
-    fs.writeFileSync(sessionPath, JSON.stringify(storage, null, 2));
-  }
+    // 保存会话
+    const saveSession = async () => {
+      try {
+        const storage = await context.storageState();
+        fs.writeFileSync(sessionPath, JSON.stringify(storage, null, 2));
+      } catch (e) {
+        console.log('保存会话失败:', e);
+      }
+    };
 
-  // 执行 hover 操作
-  async function hoverAndWait(page: Page, x: number, y: number) {
-    await page.mouse.move(x, y);
-    await page.waitForTimeout(1000); // 等待面板弹出
-  }
-
-  // 执行返回操作
-  async function goBack(page: Page) {
-    // 尝试按 ESC 或点击返回区域
-    await page.keyboard.press('Escape');
-    await page.waitForTimeout(500);
-  }
-
-  try {
-    // 导航到抖音
-    console.log('正在打开抖音网页版...');
-    await page.goto('https://www.douyin.com');
-    await page.waitForLoadState('domcontentloaded', { timeout: 30000 });
+    console.log('打开抖音...');
+    await page.goto('https://www.douyin.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(2000);
 
-    // 检查是否需要登录
+    // 检查登录
     const currentUrl = page.url();
     if (currentUrl.includes('login') || await page.locator('text=登录').count() > 0) {
-      console.log('\n⚠️  需要登录抖音账号！');
-      console.log('请在浏览器中完成登录（扫码或密码登录）');
-      console.log('登录完成后，按回车继续...\n');
-
-      await new Promise(resolve => {
-        process.stdin.once('data', resolve);
-      });
-      console.log('\n✓ 登录完成，开始执行任务...\n');
+      console.log('\n⚠️  需要登录！');
+      console.log('请在浏览器中扫码登录，完成后按回车继续...\n');
+      await new Promise(resolve => process.stdin.once('data', resolve));
+      console.log('✓ 继续执行...\n');
       await page.waitForTimeout(2000);
-    } else {
-      console.log('✓ 已登录，开始执行任务...\n');
     }
 
-    // 执行续火花任务
-    const task = `请执行续火花任务：
-1. 将鼠标移动到右上角的"私信"按钮位置悬停（不要点击），等待私信面板弹出
-2. 观察私信列表中的好友，注意看火花图标颜色：
-   - 灰色火花 = 需要续火花
-   - 彩色火花 = 今天已发过，跳过
-3. 对于灰色火花的好友（且不在已处理列表中）：
-   - 点击进入聊天
-   - 如果有视频分享，先回复视频感受
-   - 然后发送续火花消息（介绍自己是AI小火苗 + 幽默内容）
-   - 返回列表
-4. 继续处理下一个灰色火花好友
-5. 所有好友处理完后报告完成`;
+    console.log('✓ 开始续火花任务\n');
 
+    // 步骤1: 悬停私信按钮
+    console.log('[1] 悬停私信按钮...');
+    await page.mouse.move(1180, 50);
+    await page.waitForTimeout(2000);
+    currentState = 'panel_open';
+
+    const maxSteps = 80;
     let step = 0;
-    const maxSteps = 150;
-    let currentFriend: string | null = null;
 
     while (step < maxSteps) {
       step++;
       console.log(`\n${'='.repeat(40)}`);
-      console.log(`[步骤 ${step}/${maxSteps}]`);
-      console.log(`已处理好友: ${processedFriends.size > 0 ? Array.from(processedFriends).join(', ') : '无'}`);
+      console.log(`[步骤 ${step}/${maxSteps}] 状态: ${currentState} | 已处理: ${processedFriends.size} 人`);
 
       try {
         // 截图
-        const screenshot = (await page.screenshot({ type: 'jpeg', quality: 80 })).toString('base64');
+        console.log('  📸 截图中...');
+        const screenshot = (await page.screenshot({ type: 'jpeg', quality: 60 })).toString('base64');
 
-        // 分析页面
+        // AI分析
         const result = await analyzeWithVision(
           process.env.GLM_API_KEY!,
           screenshot,
-          task,
+          `分析当前页面，状态:${currentState}，决定下一步操作。如果是私信面板，找到灰色火花的好友点击；如果是聊天界面，输入有趣的续火花消息。`,
           Array.from(processedFriends)
         );
 
-        console.log(`[理解] ${result.understanding}`);
-        console.log(`[进度] ${result.progress || '进行中...'}`);
-        console.log(`[操作] ${result.action.type}${result.action.description ? ' - ' + result.action.description : ''}`);
-
-        // 记录识别到的好友
-        if (result.friendIdentified && !processedFriends.has(result.friendIdentified)) {
-          currentFriend = result.friendIdentified;
-          console.log(`[好友] 识别到: ${result.friendIdentified}`);
+        console.log(`  👁 理解: ${result.understanding}`);
+        console.log(`  🎯 操作: ${result.action.type}${result.action.description ? ' - ' + result.action.description : ''}`);
+        if (result.friendIdentified) {
+          console.log(`  👤 好友: ${result.friendIdentified}`);
         }
 
         // 执行操作
         switch (result.action.type) {
           case 'hover':
             if (result.action.position) {
-              await hoverAndWait(page, result.action.position.x, result.action.position.y);
+              await page.mouse.move(result.action.position.x, result.action.position.y);
+              await page.waitForTimeout(1500);
+              currentState = 'panel_open';
             }
             break;
 
           case 'click':
             if (result.action.position) {
               await page.mouse.click(result.action.position.x, result.action.position.y);
-              await page.waitForTimeout(1000);
+              await page.waitForTimeout(1500);
+
+              if (currentState === 'panel_open') {
+                currentState = 'in_chat';
+                if (result.friendIdentified) {
+                  processedFriends.add(result.friendIdentified);
+                  console.log(`  ✅ 记录好友: ${result.friendIdentified}`);
+                }
+              }
             }
             break;
 
           case 'input':
             if (result.action.content) {
-              // 先点击输入框确保焦点
+              // 点击输入框区域
+              await page.mouse.click(850, 700);
               await page.waitForTimeout(500);
-              await page.keyboard.type(result.action.content, { delay: 30 });
-              await page.waitForTimeout(300);
-              // 按回车发送
+
+              // 输入文字
+              await page.keyboard.type(result.action.content, { delay: 50 });
+              await page.waitForTimeout(500);
+
+              // 发送
               await page.keyboard.press('Enter');
-              console.log(`[发送] ${result.action.content}`);
-              // 标记好友已处理
-              if (currentFriend) {
-                processedFriends.add(currentFriend);
-                console.log(`[记录] 已处理: ${currentFriend}`);
-                currentFriend = null;
-              }
-              await page.waitForTimeout(1000);
+              console.log(`  📤 发送: "${result.action.content}"`);
+              await page.waitForTimeout(1500);
             }
             break;
 
-          case 'scroll': {
-            const scrollAmount = result.action.amount || 200;
-            await page.mouse.wheel(0, scrollAmount);
-            await page.waitForTimeout(500);
-            break;
-          }
-
           case 'back':
-            await goBack(page);
+            await page.keyboard.press('Escape');
             await page.waitForTimeout(1000);
-            break;
-
-          case 'wait':
-            await page.waitForTimeout(2000);
+            // 重新悬停私信
+            await page.mouse.move(1180, 50);
+            await page.waitForTimeout(1500);
+            currentState = 'panel_open';
             break;
 
           case 'done':
-            console.log('\n' + '='.repeat(40));
-            console.log('✅ 续火花任务完成！');
-            console.log(`📊 共处理 ${processedFriends.size} 位好友`);
-            if (processedFriends.size > 0) {
-              console.log(`👥 好友列表: ${Array.from(processedFriends).join(', ')}`);
-            }
+            console.log('\n✅ 任务完成！');
             await saveSession();
             return;
         }
 
-        // 保存会话
-        await saveSession();
-
-        // 检查是否完成
         if (result.isComplete) {
-          console.log('\n' + '='.repeat(40));
-          console.log('✅ 续火花任务完成！');
-          console.log(`📊 共处理 ${processedFriends.size} 位好友`);
+          console.log('\n✅ 所有好友已处理！');
+          await saveSession();
           return;
         }
 
-        // 等待一下再继续
+        await saveSession();
         await page.waitForTimeout(800);
 
       } catch (err) {
-        console.error('[错误]', err);
+        console.error('  ❌ 错误:', err);
         await page.waitForTimeout(2000);
       }
     }
 
-    console.log('\n⚠️ 达到最大步骤数，任务可能未完全完成');
-    console.log(`📊 已处理 ${processedFriends.size} 位好友`);
+    console.log('\n⚠️ 达到最大步骤数');
 
   } catch (error) {
     console.error('\n❌ 执行出错:', error);
   } finally {
-    await saveSession();
-    console.log('\n' + '='.repeat(40));
-    console.log('--- 按 Ctrl+C 退出，或按回车关闭浏览器 ---');
-    await new Promise(resolve => {
-      process.stdin.once('data', resolve);
-    });
-    await browser.close();
+    // 保存会话
+    if (browser) {
+      try {
+        const contexts = browser.contexts();
+        for (const ctx of contexts) {
+          const storage = await ctx.storageState();
+          fs.writeFileSync(sessionPath, JSON.stringify(storage, null, 2));
+        }
+      } catch (e) {
+        console.log('保存会话时出错:', e);
+      }
+
+      console.log('\n按回车关闭浏览器...');
+      await new Promise(resolve => process.stdin.once('data', resolve));
+      await browser.close();
+    }
   }
 }
 

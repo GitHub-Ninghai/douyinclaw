@@ -1,0 +1,12 @@
+# Sandbox Service Dependencies
+
+# Web Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+websockets>=12.0
+
+# Browser Automation
+playwright>=1.40.0
+
+# Utilities
+python-dotenv>=1.0.0

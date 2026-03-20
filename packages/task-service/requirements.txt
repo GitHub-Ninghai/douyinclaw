@@ -1,0 +1,14 @@
+# Task Service Dependencies
+
+# Scheduler
+apscheduler>=3.10.0
+
+# Database
+motor>=3.3.0
+pymongo>=4.6.0
+
+# HTTP
+httpx>=0.26.0
+
+# Utilities
+python-dotenv>=1.0.0
