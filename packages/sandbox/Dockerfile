@@ -11,8 +11,8 @@ RUN apt-get update && apt-get install -y \
 # Copy sandbox code
 COPY . .
 
-# Install Python dependencies
-RUN pip3 install --no-cache-dir -r requirements.txt
+# Install Python dependencies with Tsinghua mirror
+RUN pip3 install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
 # Expose Chrome DevTools port
 EXPOSE 9222

@@ -4,7 +4,7 @@ Douyin Tools
 """
 
 from typing import Dict, Any, List, Optional
-from .base import BaseTool, ToolContext, ToolResult
+from . import BaseTool, ToolContext, ToolResult
 
 
 class GetFriendsTool(BaseTool):

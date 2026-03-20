@@ -33,8 +33,8 @@ services:
   # ====================
   frontend:
     build:
-      context: ./packages/web
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: packages/web/Dockerfile
     container_name: douyin-claw-frontend
     ports:
       - "3000:3000"
@@ -95,7 +95,7 @@ services:
   # MongoDB
   # ====================
   mongodb:
-    image: registry.cn-hangzhou.aliyuncs.com/library/mongo:7.0-jammy
+    image: docker.m.daocloud.io/library/mongo:7.0-jammy
     container_name: douyin-claw-mongodb
     ports:
       - "27017:27017"
@@ -111,7 +111,7 @@ services:
   # Redis
   # ====================
   redis:
-    image: registry.cn-hangzhou.aliyuncs.com/library/redis:7-alpine
+    image: docker.m.daocloud.io/library/redis:7-alpine
     container_name: douyin-claw-redis
     ports:
       - "6379:6379"
@@ -121,18 +121,18 @@ services:
       - douyin-claw-network
 
   # ====================
-  # WebSearch (SearXNG)
+  # WebSearch (SearXNG) - 暂时禁用
   # ====================
-  websearch:
-    image: registry.cn-hangzhou.aliyuncs.com/searxng/searxng:latest
-    container_name: douyin-claw-websearch
-    ports:
-      - "8888:8080"
-    environment:
-      - BASE_URL=http://localhost:8888/
-      - INSTANCE_NAME=DouyinClaw Search
-    networks:
-      - douyin-claw-network
+  # websearch:
+  #   image: dockerpull.org/searxng/searxng:latest
+  #   container_name: douyin-claw-websearch
+  #   ports:
+  #     - "8888:8080"
+  #   environment:
+  #     - BASE_URL=http://localhost:8888/
+  #     - INSTANCE_NAME=DouyinClaw Search
+  #   networks:
+  #     - douyin-claw-network
 
 networks:
   douyin-claw-network:

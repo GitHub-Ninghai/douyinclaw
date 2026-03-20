@@ -41,3 +41,5 @@ coverage/
 
 # Misc
 *.pem
+nul
+banner.png

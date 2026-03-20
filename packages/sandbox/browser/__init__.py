@@ -24,7 +24,7 @@ class BrowserManager:
         self.playwright = await async_playwright().start()
 
         self.browser = await self.playwright.chromium.launch(
-            headless=False,
+            headless=True,  # 在 Docker 容器中必须使用 headless 模式
             args=[
                 '--disable-blink-features=AutomationControlled',
                 '--disable-web-security',

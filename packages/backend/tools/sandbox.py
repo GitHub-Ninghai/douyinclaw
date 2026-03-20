@@ -7,7 +7,7 @@ from typing import Dict, Any
 import os
 import subprocess
 import asyncio
-from .base import BaseTool, ToolContext, ToolResult
+from . import BaseTool, ToolContext, ToolResult
 
 
 class ReadFileTool(BaseTool):

@@ -4,7 +4,7 @@ Browser Tools
 """
 
 from typing import Dict, Any
-from .base import BaseTool, ToolContext, ToolResult
+from . import BaseTool, ToolContext, ToolResult
 
 
 class ScreenshotTool(BaseTool):
