@@ -1,5 +1,9 @@
 # DouyinClaw
 
+<div align="center">
+  <img src="banner.png" alt="DouyinClaw Banner" width="100%">
+</div>
+
 抖音社交助手 - 使用视觉 AI 自动续火花 + 智能回复
 
 > **开发状态**: 项目正在积极开发中，部分功能尚未完成，欢迎 Star 关注进展
