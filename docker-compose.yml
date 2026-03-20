@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # Redis 服务
+  redis:
+    image: redis:7-alpine
+    container_name: douyinclaw-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # API 后端服务
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: douyinclaw-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-3001}:3001"
+    environment:
+      - NODE_ENV=production
+      - API_PORT=3001
+      - REDIS_URL=redis://redis:6379
+    env_file:
+      - .env
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Web 前端服务
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: douyinclaw-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://api:3001
+    depends_on:
+      - api
+
+volumes:
+  redis_data:
+
+networks:
+  default:
+    name: douyinclaw-network

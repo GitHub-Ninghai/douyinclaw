@@ -1,0 +1,54 @@
+# API 服务 Dockerfile
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# 安装 pnpm
+RUN npm install -g pnpm@9.0.0
+
+# 复制依赖文件
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/core/package.json ./packages/core/
+COPY packages/server/package.json ./packages/server/
+
+# 安装依赖
+RUN pnpm install --frozen-lockfile
+
+# 复制源代码
+COPY packages/shared ./packages/shared
+COPY packages/core ./packages/core
+COPY packages/server ./packages/server
+COPY tsconfig.json ./
+
+# 构建
+RUN pnpm --filter @douyinclaw/shared build
+RUN pnpm --filter @douyinclaw/core build
+RUN pnpm --filter @douyinclaw/server build
+
+# 生产镜像
+FROM node:20-alpine
+
+WORKDIR /app
+
+# 安装 pnpm
+RUN npm install -g pnpm@9.0.0
+
+# 复制构建产物
+COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+COPY --from=builder /app/packages/core/dist ./packages/core/dist
+COPY --from=builder /app/packages/server/dist ./packages/server/dist
+COPY --from=builder /app/packages/shared/package.json ./packages/shared/
+COPY --from=builder /app/packages/core/package.json ./packages/core/
+COPY --from=builder /app/packages/server/package.json ./packages/server/
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
+
+# 创建数据目录
+RUN mkdir -p /app/data/sessions
+
+# 暴露端口
+EXPOSE 3001
+
+# 启动命令
+CMD ["node", "packages/server/dist/index.js"]

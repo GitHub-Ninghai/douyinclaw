@@ -1,0 +1,49 @@
+# Web 前端 Dockerfile
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# 安装 pnpm
+RUN npm install -g pnpm@9.0.0
+
+# 复制依赖文件
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/web/package.json ./packages/web/
+
+# 安装依赖
+RUN pnpm install --frozen-lockfile
+
+# 复制源代码
+COPY packages/shared ./packages/shared
+COPY packages/web ./packages/web
+COPY tsconfig.json ./
+
+# 构建 shared 包
+RUN pnpm --filter @douyinclaw/shared build
+
+# 构建 Web 应用
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN pnpm --filter @douyinclaw/web build
+
+# 生产镜像
+FROM node:20-alpine
+
+WORKDIR /app
+
+# 安装 pnpm
+RUN npm install -g pnpm@9.0.0
+
+# 复制构建产物
+COPY --from=builder /app/packages/web/.next ./packages/web/.next
+COPY --from=builder /app/packages/web/public ./packages/web/public
+COPY --from=builder /app/packages/web/package.json ./packages/web/
+COPY --from=builder /app/packages/web/next.config.js ./packages/web/
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
+
+# 暴露端口
+EXPOSE 3000
+
+# 启动命令
+CMD ["pnpm", "--filter", "@douyinclaw/web", "start"]
